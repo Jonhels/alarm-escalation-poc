@@ -6,10 +6,10 @@ This repository contains a proof of concept (POC) for an **alarm escalation syst
 
 The goal is to validate that a backend system can:
 
-* Trigger phone calls when an alarm occurs
-* Deliver a voice message to the receiver
-* Allow the receiver to acknowledge the alarm via keypad input
-* Persist and track the result of the call
+- Trigger phone calls when an alarm occurs
+- Deliver a voice message to the receiver
+- Allow the receiver to acknowledge the alarm via keypad input
+- Persist and track the result of the call
 
 This POC focuses on the **core interaction flow**, not full production behavior.
 
@@ -30,28 +30,34 @@ Trigger alarm
 
 ### Features
 
-* Trigger a simulated alarm via API
-* Outbound phone call using Twilio
-* Voice message playback
-* Keypad interaction (press 1 to acknowledge)
-* Persistence of call attempts in PostgreSQL
-* Tracking of call status and acknowledgement
-* Basic logging of call lifecycle
+- Trigger a simulated alarm via API
+- Outbound phone call using Twilio
+- Voice message playback
+- Keypad interaction (press 1 to acknowledge)
+- Persistence of call attempts in PostgreSQL
+- Tracking of call status and acknowledgement
+- Basic logging of call lifecycle
 
 ---
 
 ## Tech Stack
 
-* .NET 8 / ASP.NET Core (Minimal API)
-* PostgreSQL
-* Entity Framework Core
-* Twilio Voice API
-* Docker Compose (for local database)
-* ngrok (for exposing webhooks locally)
+- .NET 9.0 / ASP.NET Core
+- PostgreSQL
+- Entity Framework Core
+- Twilio Voice API
+- Docker Compose (for local database)
+- Serilog (structured logging)
+- Swashbuckle (Swagger)
 
 ---
 
 ## Getting Started
+
+### Prerequisites
+
+- .NET 9.0 SDK
+- Docker Desktop
 
 ### 1. Start PostgreSQL
 
@@ -59,17 +65,17 @@ Trigger alarm
 docker compose up -d
 ```
 
----
+### 2. Configure settings
 
-### 2. Run the API
+Edit `src/Web/appsettings.Development.json` with your Twilio credentials and database connection string.
+
+### 3. Run the API
 
 ```bash
-dotnet run
+dotnet run --project src/Web/Web.csproj
 ```
 
----
-
-### 3. Expose local server (required for Twilio)
+### 4. Expose local server (required for Twilio webhooks)
 
 ```bash
 ngrok http 5000
@@ -79,23 +85,12 @@ Copy the HTTPS URL and configure it as your webhook base URL.
 
 ---
 
-### 4. Configure environment variables
-
-```bash
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_FROM_NUMBER=
-BASE_WEBHOOK_URL=https://your-ngrok-url
-```
-
----
-
 ## API Endpoints
 
 ### Trigger test alarm
 
 ```http
-POST /test-alarm
+POST /api/test-alarm
 ```
 
 Example body:
@@ -103,28 +98,53 @@ Example body:
 ```json
 {
   "phoneNumber": "+47xxxxxxxx",
-  "message": "Freezer alarm in store X"
+  "alarmMessage": "Freezer alarm in Store X"
 }
 ```
 
----
-
 ### Twilio webhooks
 
-```text
-POST /twilio/voice     → returns voice message + gather input
-POST /twilio/gather    → handles keypad input
-POST /twilio/status    → receives call status updates
 ```
-
----
+POST /api/twilio/voice     → returns voice message + gather input
+POST /api/twilio/gather    → handles keypad input
+POST /api/twilio/status    → receives call status updates
+```
 
 ### Retrieve call attempts
 
 ```http
-GET /call-attempts
-GET /call-attempts/{id}
+GET /api/call-attempts
+GET /api/call-attempts/{id}
 ```
+
+---
+
+## Architecture
+
+This project uses a layered .NET service architecture:
+
+```
+alarm-escalation-poc/
+├── AlarmEscalation.sln
+├── docker-compose.yml
+├── src/
+│   ├── Web/              → ASP.NET Core API (controllers, filters, startup)
+│   ├── Domain/           → Domain models, interfaces, exceptions
+│   ├── Infrastructure/   → EF Core DbContext, repositories
+│   ├── ExternalServices/ → Twilio integration, call orchestration
+│   └── Common/           → Shared options/configuration classes
+└── tests/                → Test projects (future)
+```
+
+**Key patterns:**
+
+- Strongly-typed Options classes in Common/Options
+- Domain models as C# records with init-only properties
+- Repository pattern with EF Core + PostgreSQL
+- Environment-aware service registration (real vs dummy clients)
+- Scrutor for DI decoration
+- Serilog with JSON formatter for non-dev environments
+- Custom exception filter for consistent error handling
 
 ---
 
@@ -132,48 +152,48 @@ GET /call-attempts/{id}
 
 ### CallAttempt
 
-```text
-Id
-AlarmReference
-PhoneNumber
-Status
-AttemptNumber
-TwilioCallSid
-CreatedAt
-UpdatedAt
-AcknowledgedAt
+```
+Id                  GUID
+PhoneNumber         string
+AlarmMessage        string
+Status              enum: Pending, InProgress, Acknowledged, Failed, NoAnswer
+TwilioCallSid       string (nullable)
+CreatedAt           DateTime
+AcknowledgedAt      DateTime (nullable)
+```
+
+### AlarmEvent
+
+```
+Id                  GUID
+AlarmSource         string
+AlarmType           string
+Message             string
+OccurredAt          DateTime
+CallAttemptId       GUID (nullable)
 ```
 
 ---
 
 ## Call Flow
 
-```text
-POST /test-alarm
+```
+POST /api/test-alarm
   → store CallAttempt
   → trigger Twilio call
 
-Twilio → /twilio/voice
+Twilio → /api/twilio/voice
   → play message
   → ask for input
 
 User presses 1
 
-Twilio → /twilio/gather
+Twilio → /api/twilio/gather
   → mark CallAttempt as acknowledged
 
-Twilio → /twilio/status
+Twilio → /api/twilio/status
   → update call status
 ```
-
----
-
-## What This POC Proves
-
-* Outbound alarm calls are technically feasible
-* Twilio integration works with a backend-driven flow
-* Acknowledgement via keypad input is reliable
-* Call state can be persisted and tracked
 
 ---
 
@@ -183,14 +203,14 @@ This is a **POC**, not a production-ready system.
 
 It does NOT include:
 
-* Escalation chains (multiple contacts)
-* Retry logic
-* SMS fallback
-* On-call schedules
-* Multi-region routing
-* Alarm deduplication
-* Monitoring and alerting
-* Access control / security hardening
+- Escalation chains (multiple contacts)
+- Retry logic
+- SMS fallback
+- On-call schedules
+- Multi-region routing
+- Alarm deduplication
+- Monitoring and alerting
+- Access control / security hardening
 
 ---
 
@@ -198,33 +218,9 @@ It does NOT include:
 
 To move toward a production system:
 
-* Support multiple contacts per alarm
-* Add escalation and retry logic
-* Add SMS fallback
-* Introduce scheduling (on-call / time-based routing)
-* Add monitoring and alerting
-* Improve robustness and error handling
-
----
-
-## Architecture Note
-
-This POC follows the principle:
-
-> The backend owns the logic. External services (Twilio) are delivery mechanisms.
-
-Future versions could evolve toward:
-
-```text
-Alarm → Escalation Engine → Call Orchestrator → Twilio → Webhooks → State updates
-```
-
----
-
-## Purpose
-
-This POC was created to:
-
-* Validate feasibility of automated alarm calling
-* Understand integration complexity
-* Identify the main challenges for a production-ready system
+- Support multiple contacts per alarm
+- Add escalation and retry logic
+- Add SMS fallback
+- Introduce scheduling (on-call / time-based routing)
+- Add monitoring and alerting
+- Improve robustness and error handling
